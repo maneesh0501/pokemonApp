@@ -23,6 +23,7 @@ class PokemonViewModel @Inject constructor(
     private val _pokemonListState = MutableStateFlow(PokemonListState())
     val pokemonListState: StateFlow<PokemonListState> = _pokemonListState.asStateFlow()
 
+    private var _originalPokemonCards: List<Data> = emptyList()
     private var currentPage = 0
 
     init {
@@ -36,9 +37,14 @@ class PokemonViewModel @Inject constructor(
                 .catch { e ->
                     _pokemonListState.value = _pokemonListState.value.copy(isLoading = false)
                     val localData = repository.getPokemonCards(currentPage).firstOrNull()
-                    _pokemonListState
+                    _originalPokemonCards = localData ?: emptyList()
+                    _pokemonListState.value = _pokemonListState.value.copy(
+                        isLoading = false,
+                        pokemonCards = _originalPokemonCards
+                    )
                 }
                 .collect { cards ->
+                    _originalPokemonCards = cards
                     _pokemonListState.value = _pokemonListState.value.copy(
                         isLoading = false,
                         pokemonCards = cards
@@ -53,8 +59,9 @@ class PokemonViewModel @Inject constructor(
             repository.getPokemonCards(currentPage)
                 .catch {  }
                 .collect { newCards ->
+                    _originalPokemonCards = _originalPokemonCards + newCards
                     _pokemonListState.value = _pokemonListState.value.copy(
-                        pokemonCards = _pokemonListState.value.pokemonCards + newCards
+                        pokemonCards = _originalPokemonCards
                     )
                 }
         }
@@ -71,21 +78,16 @@ class PokemonViewModel @Inject constructor(
     }
 
     private fun filterPokemonCards() {
-        viewModelScope.launch {
-            repository.getPokemonCards(currentPage)
-                .collect { cards ->
-                    val filteredList = cards
-                        .filter { it.name.contains(_pokemonListState.value.searchQuery, ignoreCase = true) }
-                        .sortedWith(
-                            when (_pokemonListState.value.sortOrder) {
-                                SortOrder.BY_LEVEL -> compareBy { it.level?.toIntOrNull() ?: Int.MAX_VALUE }
-                                SortOrder.BY_HP -> compareBy { it.hp.toIntOrNull() ?: 0 }
-                                else -> compareBy { it.name }
-                            }
-                        )
-                    _pokemonListState.value = _pokemonListState.value.copy(pokemonCards = filteredList)
+        val filteredList = _originalPokemonCards
+            .filter { it.name.contains(_pokemonListState.value.searchQuery, ignoreCase = true) }
+            .sortedWith(
+                when (_pokemonListState.value.sortOrder) {
+                    SortOrder.BY_LEVEL -> compareBy { it.level?.toIntOrNull() ?: Int.MAX_VALUE }
+                    SortOrder.BY_HP -> compareBy { it.hp.toIntOrNull() ?: 0 }
+                    else -> compareBy { it.name }
                 }
-        }
+            )
+        _pokemonListState.value = _pokemonListState.value.copy(pokemonCards = filteredList)
     }
 
     fun getPokemonCardById(id: String): StateFlow<Data?> {
